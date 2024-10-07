@@ -1,40 +1,49 @@
-use std::io::{BufRead, BufReader, Write};
-#[allow(unused_imports)]
+use std::io::Write;
 use std::net::TcpListener;
+
+use http::{parse_request, Response};
+pub mod http;
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut _stream) => {
-                let buf_reader = BufReader::new(&mut _stream);
-                let request_line = buf_reader.lines().next().unwrap().unwrap();
-                let req: Vec<_> = request_line.split(" ").collect();
-                let req_url = req[1];
-                let response;
-                let mut dynamic_path = "";
-                let mut dynamic_path_len = 0;
+    while let Ok((mut stream, _)) = listener.accept() {
+        let request = parse_request(&stream);
 
-                let path = req_url.split("/").collect::<Vec<_>>();
+        let response = if request.path == "/" {
+            Response::ok()
+        } else if let Some(content) = request.path.strip_prefix("/echo/") {
+            Response::ok()
+                .set_headers(String::from("Content-Type"), String::from("text/plain"))
+                .set_headers("Content-Length".to_string(), content.len().to_string())
+                .set_body(content.to_string())
+        } else if request.path.starts_with("/user-agent") {
+            let user_agent = request.headers.get("user-agent").unwrap().trim();
+            Response::ok()
+                .set_headers(String::from("Content-Type"), String::from("text/plain"))
+                .set_headers("Content-Length".to_string(), user_agent.len().to_string())
+                .set_body(user_agent.to_string())
+        } else {
+            Response::not_found()
+        };
 
-                if path.len() >= 3 {
-                    dynamic_path = path[2];
-                    dynamic_path_len = dynamic_path.len();
-                }
-                if req_url.starts_with("/etc") {
-                    response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", dynamic_path_len, dynamic_path)
-                } else {
-                    response = match request_line.as_str() {
-                        "GET / HTTP/1.1" => "HTTP/1.1 200 OK\r\n\r\n".to_string(),
-                        _ => "HTTP/1.1 404 Not Found\r\n\r\n".to_string(),
-                    };
-                }
-                _stream.write_all(response.as_bytes()).unwrap();
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
+        let mut result = Vec::new();
+
+        let status = response.get_status_str();
+        result.push(status);
+        result.push("\r\n".to_string());
+        for entry in response.headers {
+            result.push(format!("{}: {}", entry.0, entry.1).to_string());
+            result.push("\r\n".to_string());
         }
+
+        result.push("\r\n".to_string());
+
+        for body in response.body {
+            result.push(body);
+        }
+
+        let final_response = result.join("");
+        _ = stream.write_all(final_response.as_bytes());
     }
 }
