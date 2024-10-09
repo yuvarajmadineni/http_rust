@@ -5,7 +5,7 @@ use std::{
 };
 
 #[derive(Default, Clone, Debug)]
-pub enum Mode {
+pub enum Method {
     #[default]
     GET,
     POST,
@@ -15,7 +15,7 @@ pub enum Mode {
 pub struct Request {
     pub path: String,
     pub headers: HashMap<String, String>,
-    pub mode: Mode,
+    pub mode: Method,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -72,14 +72,14 @@ pub fn parse_request(stream: &TcpStream) -> Request {
 
     let _read_first_line = buf_reader.read_line(&mut line);
     let mut path_iter = line.split(" ");
-    let mut mode: Mode = Mode::GET;
+    let mut mode: Method = Method::GET;
     let mut path = "/";
 
     if let Some(req_mode) = path_iter.next() {
         mode = match req_mode {
-            "GET" => Mode::GET,
-            "POST" => Mode::POST,
-            _ => Mode::GET,
+            "GET" => Method::GET,
+            "POST" => Method::POST,
+            _ => Method::GET,
         }
     }
 
