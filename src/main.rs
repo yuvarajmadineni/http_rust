@@ -1,3 +1,5 @@
+use std::env::{self};
+use std::io::Read;
 use std::net::TcpListener;
 use std::{io::Write, net::TcpStream};
 
@@ -16,7 +18,7 @@ fn main() {
 
     let thread_pool = Threadpool::new(4);
     while let Ok((stream, _)) = listener.accept() {
-        thread_pool.execute(|| {
+        thread_pool.execute(move || {
             handle_connection(stream);
         })
     }
@@ -24,6 +26,12 @@ fn main() {
 
 fn handle_connection(mut stream: TcpStream) {
     let request = parse_request(&stream);
+    let args: Vec<String> = env::args().collect();
+
+    let mut dir_path = "";
+    if args.len() > 2 {
+        dir_path = &args[2];
+    }
 
     let response = if request.path == "/" {
         Response::ok()
@@ -38,6 +46,37 @@ fn handle_connection(mut stream: TcpStream) {
             .set_headers(String::from("Content-Type"), String::from("text/plain"))
             .set_headers(String::from("Content-Length"), user_agent.len().to_string())
             .set_body(user_agent.to_string())
+    } else if let Some(file_path) = request.path.strip_prefix("/files/") {
+        let path = format!("{}/{}", dir_path, file_path);
+        let result = std::fs::File::open(path);
+
+        match result {
+            Ok(mut file) => {
+                let mut content = String::from("");
+                let _ = file.read_to_string(&mut content);
+                let metadata = file.metadata();
+                let mut file_size = 0;
+
+                match metadata {
+                    Ok(meta) => {
+                        file_size = meta.len();
+                    }
+                    Err(_) => {}
+                }
+                Response::ok()
+                    .set_headers(
+                        String::from("Content-Type"),
+                        String::from("application/octet-stream"),
+                    )
+                    .set_headers(String::from("Content-Length"), file_size.to_string())
+                    .set_body(content.to_string())
+            }
+
+            Err(e) => {
+                eprintln!("Error while reading contents from the file {}", e);
+                Response::not_found()
+            }
+        }
     } else {
         Response::not_found()
     };
